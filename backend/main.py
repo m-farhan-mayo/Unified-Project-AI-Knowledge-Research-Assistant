@@ -21,11 +21,15 @@ from app.services.database import (
     get_document_chunks,
     search_similar_chunks,
 )
+from app.services.llm_service import ask_llm, ask_llm_with_tools, execute_tool
+from app.services.tools import get_user_info, search_web
+
+
+
 
 
 load_dotenv()
 
-from app.services.llm_service import ask_llm, ask_llm_with_tools, execute_tool
 
 app = FastAPI()
 
@@ -69,7 +73,10 @@ def chat(request: ChatRequest):
         }
     )
 
-    response = ask_llm(messages)
+    response = ask_llm_with_tools(
+    request.message,
+    request.history
+)
 
     return {
         "response": response
@@ -296,9 +303,25 @@ def history_test():
 @app.get("/api/tool-test")
 def tool_test():
     response = ask_llm_with_tools(
-        "What is Farhan's name?"
+        "Research Apache Kafka and give me a structured report."
     )
 
     return {
         "response": response
     }
+
+@app.get("/api/search-test")
+def search_test():
+    return search_web(
+        "Latest Databricks news"
+    )
+
+
+
+from app.services.research_service import research_topic
+
+@app.get("/api/research-test")
+def research_test():
+    result = research_topic("Apache Kafka")
+
+    return result
