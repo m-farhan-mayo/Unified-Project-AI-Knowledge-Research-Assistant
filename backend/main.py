@@ -21,7 +21,7 @@ from app.services.database import (
     search_similar_chunks,
 )
 from app.services.llm_service import ask_llm, ask_llm_with_tools
-from app.services.tools import send_email
+from app.services.tools import search_web, send_email
 from app.services.pdf_service import (
     extract_text_from_pdf,
     chunk_text,
