@@ -5,6 +5,20 @@ import { useState } from "react";
 type Message = {
   role: "user" | "assistant";
   content: string;
+  sources?: Source[];
+  emailStatus?: EmailStatus;
+};
+
+type EmailStatus = {
+  success: boolean;
+  message: string;
+  recipient?: string;
+  subject?: string;
+};
+
+type Source = {
+  title?: string;
+  url?: string;
 };
 
 export default function Home() {
@@ -35,6 +49,8 @@ export default function Home() {
 
     try {
       let responseText = "";
+      let responseSources: Source[] = [];
+      let responseEmailStatus: EmailStatus | undefined;
 
       if (selectedFile) {
         const formData = new FormData();
@@ -63,19 +79,35 @@ export default function Home() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ message: text, history: messages }),
+          body: JSON.stringify({
+            message: text,
+            history: messages.map(({ role, content }) => ({ role, content })),
+          }),
         });
 
         const data = await result.json();
         if (!result.ok) {
           throw new Error(data.detail || `Chat request failed (${result.status}).`);
         }
-        responseText = data.response || "No response received.";
+        if (typeof data.response === "string") {
+          responseText = data.response;
+        } else {
+          responseText = data.response?.answer || "No response received.";
+          responseSources = Array.isArray(data.response?.sources)
+            ? data.response.sources
+            : [];
+          responseEmailStatus = data.response?.email_status;
+        }
       }
 
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: responseText },
+        {
+          role: "assistant",
+          content: responseText,
+          sources: responseSources,
+          emailStatus: responseEmailStatus,
+        },
       ]);
     } catch (error) {
       setMessages((prev) => [
@@ -147,6 +179,34 @@ export default function Home() {
                   }`}
                 >
                   {msg.content}
+                  {msg.sources && msg.sources.length > 0 && (
+                    <div className="mt-3 border-t border-current/15 pt-2">
+                      <p className="mb-1 text-xs font-semibold">Sources</p>
+                      <ul className="space-y-1">
+                        {msg.sources.map((source, sourceIndex) => (
+                          <li key={`${source.url ?? source.title ?? "source"}-${sourceIndex}`}>
+                            {source.url ? (
+                              <a
+                                href={source.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline underline-offset-2"
+                              >
+                                {source.title || source.url}
+                              </a>
+                            ) : (
+                              source.title || `Source ${sourceIndex + 1}`
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {msg.emailStatus && (
+                    <p className={`mt-2 border-t border-current/15 pt-2 text-xs ${msg.emailStatus.success ? "text-emerald-700" : "text-red-700"}`}>
+                      {msg.emailStatus.message}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}

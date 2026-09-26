@@ -1,14 +1,13 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, Request
+from fastapi import FastAPI, UploadFile, File, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from openai import RateLimitError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Any, Literal
 import tempfile
-from app.services.pdf_service import extract_text_from_pdf
-from app.services.pdf_service import extract_text_from_pdf, chunk_text
 from app.services.embedding_service import (
     get_embedding,
     get_embeddings_for_chunks,
@@ -21,8 +20,12 @@ from app.services.database import (
     get_document_chunks,
     search_similar_chunks,
 )
-from app.services.llm_service import ask_llm, ask_llm_with_tools, execute_tool
-from app.services.tools import get_user_info, search_web
+from app.services.llm_service import ask_llm, ask_llm_with_tools
+from app.services.tools import send_email
+from app.services.pdf_service import (
+    extract_text_from_pdf,
+    chunk_text,
+)
 
 
 
@@ -31,7 +34,21 @@ from app.services.tools import get_user_info, search_web
 load_dotenv()
 
 
-app = FastAPI()
+app = FastAPI(
+    title="Unified Project - AI Knowledge & Research Assistant",
+    description=(
+        "Chat with an AI assistant, research topics with cited web sources, "
+        "and upload PDFs for text extraction. Chat requests accept prior "
+        "user/assistant messages and return an answer with source data."
+    ),
+    version="1.0.0",
+    openapi_tags=[
+        {"name": "chat", "description": "Conversation and AI-assisted research."},
+        {"name": "documents", "description": "PDF upload and text extraction."},
+        {"name": "data", "description": "Embeddings, PostgreSQL, and vector search."},
+        {"name": "system", "description": "Service status and configuration checks."},
+    ],
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,32 +68,70 @@ async def handle_rate_limit_error(request: Request, exc: RateLimitError):
         },
     )
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
 class ChatRequest(BaseModel):
-    message: str
-    history: list[dict] = []
-
-@app.post("/api/chat")
-def chat(request: ChatRequest):
-    messages = [
-        {
-            "role": "system",
-            "content": "You are a helpful assistant."
-        }
-    ]
-
-    messages.extend(request.history)
-
-    messages.append(
-        {
-            "role": "user",
-            "content": request.message
-        }
+    message: str = Field(min_length=1, description="The current user message.")
+    history: list[ChatMessage] = Field(
+        default_factory=list,
+        description="Previous user and assistant messages in chronological order.",
     )
 
-    response = ask_llm_with_tools(
-    request.message,
-    request.history
+
+class ChatResult(BaseModel):
+    answer: str = Field(description="The assistant's final response.")
+    sources: list[Any] = Field(
+        description="Web or research sources used to produce the answer."
+    )
+    email_status: dict[str, Any] = Field(
+        description="Structured status of emailing the assistant's answer to the configured recipient."
+    )
+
+
+class ChatApiResponse(BaseModel):
+    response: ChatResult
+
+
+class PdfUploadResponse(BaseModel):
+    filename: str
+    total_chunks: int
+    chunks: list[str]
+
+
+@app.post(
+    "/api/chat",
+    response_model=ChatApiResponse,
+    tags=["chat"],
+    summary="Send a chat message",
+    description=(
+        "Sends the current message and optional conversation history to the "
+        "assistant, then emails the answer to CHAT_EMAIL_TO or SMTP_USERNAME. "
+        "The response contains the answer, research sources, and email status."
+    ),
 )
+def chat(request: ChatRequest):
+    response = ask_llm_with_tools(
+        request.message,
+        [message.model_dump() for message in request.history],
+    )
+    recipient = os.getenv("CHAT_EMAIL_TO") or os.getenv("SMTP_USERNAME")
+    if recipient:
+        email_status = send_email(
+            to=recipient,
+            subject="AI Assistant response",
+            body=response["answer"],
+        )
+    else:
+        email_status = {
+            "success": False,
+            "tool": "send_email",
+            "message": "Email was not sent: configure CHAT_EMAIL_TO or SMTP_USERNAME.",
+        }
+
+    response["email_status"] = email_status
 
     return {
         "response": response
@@ -88,13 +143,20 @@ def home():
         "message": "AI Knowledge & Research Assistant API is running"
     }
 
-@app.post("/api/upload-pdf")
+@app.post(
+    "/api/upload-pdf",
+    response_model=PdfUploadResponse,
+    tags=["documents"],
+    summary="Upload and extract a PDF",
+    description="Extracts PDF text and returns it as overlapping chunks.",
+    responses={400: {"description": "The uploaded file is not a PDF."}},
+)
 async def upload_pdf(file: UploadFile = File(...)):
     if not file.filename:
         return {"error": "No file provided."}
 
     if file.content_type != "application/pdf":
-        return {"error": "Only PDF files are allowed."}
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
 
     contents = await file.read()
 
@@ -102,13 +164,11 @@ async def upload_pdf(file: UploadFile = File(...)):
         temp_file.write(contents)
         temp_file_path = temp_file.name
 
-    text = extract_text_from_pdf(temp_file_path)
-
-    chunks = chunk_text(
-        text,
-        chunk_size=1000,
-        overlap=200
-    )
+    try:
+        text = extract_text_from_pdf(temp_file_path)
+        chunks = chunk_text(text, chunk_size=1000, overlap=200)
+    finally:
+        os.unlink(temp_file_path)
 
     return {
         "filename": file.filename,

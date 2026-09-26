@@ -1,4 +1,5 @@
 import os
+import logging
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -7,8 +8,7 @@ from app.services.research_service import research_topic
 from app.services.tools import (
     get_user_info,
     search_web,
-    send_slack_message,
-    send_email
+    send_slack_message
 )
 
 
@@ -39,16 +39,25 @@ def ask_llm(messages: str | list[dict[str, str]]) -> str:
     return response.choices[0].message.content or ""
 
 
-def ask_llm_with_tools(message: str, history: list[dict] = []):
+def ask_llm_with_tools(message: str, history: list[dict] | None = None):
     client = get_client()
 
     messages = [
         {
             "role": "system",
-            "content": "You are a helpful assistant."
+            "content": """
+                    You are an AI Knowledge and Research Assistant.
+
+                    Always use tools when external information is required.
+
+                    When a tool returns information,
+                    use it to generate a final answer.
+
+                    Do not invent sources.
+                    """
         }
     ]
-    messages.extend(history)
+    messages.extend(history or [])
     messages.append(
         {
             "role": "user",
@@ -57,7 +66,22 @@ def ask_llm_with_tools(message: str, history: list[dict] = []):
     )
     search_sources = []
 
-    for _ in range(5):
+    def get_unique_sources():
+        unique_sources = []
+        seen_urls = set()
+
+        for source in search_sources:
+            url = source.get("url")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_sources.append(source)
+
+        return unique_sources
+
+    MAX_TOOL_ITERATIONS = 5
+
+    for _ in range(MAX_TOOL_ITERATIONS):
+
         response = client.chat.completions.create(
             model="gemini-3.5-flash-lite",
             messages=messages,
@@ -68,24 +92,43 @@ def ask_llm_with_tools(message: str, history: list[dict] = []):
         if not assistant_message.tool_calls:
             return {
                 "answer": assistant_message.content or "The model returned no text response.",
-                "sources": search_sources,
+                "sources": get_unique_sources(),
             }
 
-        messages.append(assistant_message)
+        messages.append(
+            {
+                "role": "assistant",
+                "content": assistant_message.content,
+                "tool_calls": assistant_message.tool_calls,
+            }
+)
 
         for tool_call in assistant_message.tool_calls:
-            tool_result = execute_tool(tool_call)
-            search_sources = []
+            try:
+                tool_result = execute_tool(tool_call)
+            except Exception as exc:
+                tool_result = {
+                "success": False,
+                "error": str(exc)
+                }
+
 
             if tool_call.function.name == "search_web":
-                search_sources = tool_result["results"]
+                search_sources.extend(tool_result.get("results", []))
 
             if tool_call.function.name == "research_topic":
-                search_sources = tool_result["sources"]
+                search_sources.extend(tool_result.get("sources", []))
 
-            print(tool_result)
+            logger = logging.getLogger(__name__)
+
+            logger.info(tool_result)
+
             if not isinstance(tool_result, str):
-                tool_result = json.dumps(tool_result, ensure_ascii=False)
+                tool_result = json.dumps(
+                    tool_result,
+                    ensure_ascii=False,
+                    default=str
+                )
 
             messages.append(
                 {
@@ -95,7 +138,10 @@ def ask_llm_with_tools(message: str, history: list[dict] = []):
                 }
             )
 
-    return "The model exceeded the maximum number of tool calls."
+    return {
+        "answer": "The model exceeded the maximum number of tool calls.",
+        "sources": get_unique_sources(),
+    }
 
 def get_tools():
     return [
@@ -118,8 +164,7 @@ def get_tools():
         },
         get_search_tool(),
         get_research_tool(),
-        get_slack_tool(),
-        get_email_tool()
+        get_slack_tool()
     ]
 
 def execute_tool(tool_call):
@@ -149,10 +194,6 @@ def execute_tool(tool_call):
 
     if tool_name == "send_slack_message":
         return send_slack_message(**arguments)
-
-    if tool_name == "send_email":
-    
-        return send_email(**arguments)
 
     return "Unknown tool."
 
@@ -210,33 +251,6 @@ def get_slack_tool():
                     }
                 },
                 "required": ["message"]
-            }
-        }
-    }
-
-def get_email_tool():
-    return {
-        "type": "function",
-        "function": {
-            "name": "send_email",
-            "description": "Send an email to a recipient.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {
-                        "type": "string",
-                        "description": "The email address of the recipient."
-                    },
-                    "subject": {
-                        "type": "string",
-                        "description": "The subject of the email."
-                    },
-                    "body": {
-                        "type": "string",
-                        "description": "The content of the email."
-                    }
-                },
-                "required": ["to", "subject", "body"]
             }
         }
     }
