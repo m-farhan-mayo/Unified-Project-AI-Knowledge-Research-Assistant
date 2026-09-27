@@ -1,514 +1,1140 @@
-AI Knowledge & Research Assistant — Progress Review
+"# 🤖 AI Knowledge & Research Assistant
 
-Our original goal is to combine LLM + Basic RAG + AI Agent/Tool Calling + Research Automation + AWS deployment into one project.
+Our project is basically an **AI assistant that can chat, understand PDFs, search the web, perform research, remember conversations, use tools, and send results by email.**
 
-We are following:
+The final local architecture is:
 
-Project → Phase → Step → Test → Next Step
+```text
+                         USER
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │   Next.js   │
+                    │  Frontend   │
+                    │    :3000    │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │   FastAPI   │
+                    │   Backend   │
+                    │    :8000    │
+                    └──────┬──────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        │                  │                  │
+        ▼                  ▼                  ▼
+    ┌────────┐       ┌────────────┐      ┌────────┐
+    │ Gemini │       │ PostgreSQL │      │ Redis  │
+    │  LLM   │       │ + pgvector │      │        │
+    └────────┘       └────────────┘      └────────┘
+        │
+        ├──────────► Tavily
+        │
+        └──────────► Gmail SMTP
+```
 
-and we're staying within the agreed scope.
+---
 
-Phase 1 — Project Foundation ✅
-What we did
-Created the project structure
-Created Python virtual environment
-Set up FastAPI
-Set up Next.js
-Set up React + Tailwind
-Connected frontend → backend
-Configured CORS
-Added .env
-Protected secrets with .gitignore
-Initialized Git and made the first commit
-What you learned
-FastAPI basics
-API endpoints
-Next.js/React basics
-Frontend/backend communication
-HTTP requests
-Environment variables
-Why API keys should not be committed
-Basic Git workflow
-Phase 2 — LLM + Basic Chat ✅
-What we did
+# 1. Project Foundation ✅
 
-We connected Gemini through its OpenAI-compatible API.
+First we created the basic application structure.
 
-Our setup:
+### Backend
 
-Next.js
-   ↓
+We used:
+
+* Python
+* FastAPI
+* Uvicorn
+* Pydantic
+* `.env`
+
+### Frontend
+
+We used:
+
+* Next.js
+* React
+* TypeScript
+* Tailwind CSS
+
+We also established:
+
+```text
+Frontend → Backend API
+```
+
+and configured CORS so they could communicate.
+
+---
+
+# 2. Gemini LLM Integration ✅
+
+We connected Gemini to the backend.
+
+The application can send:
+
+```text
+System message
++
+User message
++
+Conversation history
+```
+
+to Gemini and receive an answer.
+
+We used the OpenAI Python SDK with Google's OpenAI-compatible endpoint.
+
+So the basic flow is:
+
+```text
+User
+ ↓
 FastAPI
-   ↓
-OpenAI Python SDK
-   ↓
-Gemini API
-   ↓
-Gemini 3.8 Flash
+ ↓
+Gemini
+ ↓
+Answer
+ ↓
+Frontend
+```
 
-We created:
+---
 
-llm_service.py
+# 3. Chat UI ✅
 
-and implemented:
+We created the frontend chat interface.
 
-client.chat.completions.create()
-What you learned
-What an LLM is
-How an API call works
-OpenAI-compatible APIs
-messages
-system
-user
-LLM responses
-Pydantic request validation
-HTTP 422 validation errors
-Phase 3 — Next.js + Tailwind Chat UI ✅
-What we did
+It handles:
 
-Built the basic chat interface:
+* User input
+* Send button
+* Loading state
+* API requests
+* JSON responses
+* Displaying assistant responses
+* Conversation interaction
+* PDF upload UI
 
-Input
-Send button
-AI response
-Loading state
+So the user doesn't need to interact directly with the API.
 
-Connected it to:
+---
 
-POST /api/chat
-What you learned
-React useState
-Event handlers
-fetch()
-JSON requests/responses
-Loading state
-Frontend → API communication
-Phase 4 — PDF Upload + Processing ✅
-What we did
+# 4. PDF Upload & Processing ✅
 
-Implemented:
+We added PDF processing.
 
+The flow is:
+
+```text
 PDF
  ↓
-Next.js
- ↓
 FastAPI UploadFile
+ ↓
+Validation
  ↓
 Temporary file
  ↓
 PyMuPDF
  ↓
-Extracted text
+Extract text
  ↓
-Chunks
+Split into chunks
+```
 
-We tested this with a real PDF.
+Our current chunking:
 
-What you learned
-PDF is binary data
-multipart/form-data
-FormData
-FastAPI UploadFile
-PDF text extraction
-PyMuPDF
-Text chunking
-Chunk size
-Chunk overlap
+```text
+Chunk size = 1000 characters
+Overlap    = 200 characters
+```
 
-Current chunking:
+Why?
 
-chunk size = 1000 characters
-overlap = 200 characters
-Phase 5 — Embeddings + PostgreSQL/pgvector ✅
+Because we don't want to send an entire PDF to Gemini at once.
 
-This was one of the most important phases.
+We break it into smaller pieces that can later be searched.
 
-What we did
+---
 
-Installed:
+# 5. Embeddings ✅
 
-google-genai
-psycopg
+After creating PDF chunks, we convert each chunk into a vector.
 
-Used:
+We use:
 
+```text
 gemini-embedding-001
+```
 
-Flow:
+Conceptually:
 
-PDF text
-   ↓
-Chunks
+```text
+PDF chunk
    ↓
 Embedding model
    ↓
-Vectors
-   ↓
-PostgreSQL + pgvector
+[0.12, -0.45, 0.87, ...]
+```
 
-We created:
+That vector represents the semantic meaning of the text.
 
+---
+
+# 6. PostgreSQL + pgvector ✅
+
+We added PostgreSQL with the `pgvector` extension.
+
+Database:
+
+```text
+rag_db
+```
+
+Main table:
+
+```text
 document_chunks
+```
 
-with:
+The table stores:
 
-id
+```text
 chunk_text
-embedding vector(3072)
+embedding
+```
 
-We stored the actual PDF chunks and embeddings.
+The embedding uses:
 
-Then implemented semantic search:
+```text
+vector(3072)
+```
 
-Question
-   ↓
-Question embedding
-   ↓
-pgvector
-   ↓
-Cosine distance
-   ↓
-Most relevant chunks
-What you learned
-What embeddings are
-Text → vector
-Semantic meaning represented by vectors
-Embedding models vs LLMs
-Vector databases
-PostgreSQL + pgvector
-Cosine distance
-Lower distance = more similar
-Semantic search
-Phase 6 — Basic RAG ✅
+PostgreSQL is our **persistent storage**.
 
-Then we connected everything together.
+So:
 
-Our RAG flow became:
+```text
+PDF
+ ↓
+Chunks
+ ↓
+Embeddings
+ ↓
+PostgreSQL
+```
 
+This data survives application/container restarts.
+
+---
+
+# 7. RAG ✅
+
+Then we implemented **Retrieval-Augmented Generation**.
+
+This is one of the most important parts of the project.
+
+When the user asks something about an uploaded PDF:
+
+```text
 User Question
       ↓
-Embedding
+Question Embedding
       ↓
 Vector Search
       ↓
-Top 3 Chunks
+PostgreSQL + pgvector
+      ↓
+Top 3 relevant chunks
       ↓
 Context
       ↓
 Gemini
       ↓
-Final Answer
+Answer
+```
 
-We created:
+So instead of expecting Gemini to already know your uploaded PDF, we retrieve relevant content and give it to Gemini.
 
-rag_service.py
+---
 
-and implemented:
+# 8. Source Citations ✅
 
-answer_with_rag()
+We added sources to the response.
 
-We tested it with:
+The assistant can return information like:
 
-What cloud platforms does Farhan have experience with?
+```text
+title
+url
+content
+```
 
-and it correctly retrieved relevant resume chunks and generated the answer.
+This allows the application to tell the user where information came from.
 
-What you learned
+---
 
-Most importantly:
+# 9. Conversation History ✅
 
-RAG does not make the LLM learn the document.
+Initially, conversation history was being maintained by the frontend.
 
-Instead:
+We changed this architecture.
 
-Question
- ↓
-Retrieve relevant information
- ↓
-Put information into prompt
- ↓
-LLM generates answer
+Now every conversation has:
 
-You also learned the difference between:
-
-Retrieved source text
-vs
-LLM-generated final answer
-
-Phase 7 — Source Citations + Conversation History ✅
-
-This phase is now complete.
-
-Source Citations
-
-We changed retrieval from simply:
-
-chunks = [row[1] for row in results]
-
-to preserving:
-
-chunk_id
-text
-distance
-
-Then returned:
-
-{
-  "answer": "...",
-  "sources": [
-    "Document Chunk 4",
-    "Document Chunk 2",
-    "Document Chunk 5"
-  ]
-}
-What you learned
-Backend already knows which chunks were retrieved
-Don't ask the LLM to invent source IDs
-Source IDs should come from the database
-Distance can be used internally for relevance
-Sources can be exposed separately from the answer
-Conversation History
-
-We changed:
-
-message
-
-into:
-
-message + history
+```text
+session_id
+```
 
 Example:
 
+```json
 {
-  "message": "Who provides it?",
-  "history": [
-    {
-      "role": "user",
-      "content": "What is Azure?"
-    },
-    {
-      "role": "assistant",
-      "content": "Azure is a cloud computing platform."
-    }
-  ]
+  "session_id": "session_001",
+  "message": "What is Kafka?"
 }
+```
 
-The backend builds:
+The backend uses the session ID to retrieve previous conversation history.
 
-System message
-      ↓
-Previous messages
-      ↓
-Current message
-      ↓
-Gemini
+This became especially important when we introduced Redis.
 
-And the frontend now maintains:
+---
 
-messages
-What you learned
-Why LLMs don't automatically remember previous messages
-Conversation history is just a list of messages
-role = user
-role = assistant
-Follow-up questions depend on context
-React can maintain the conversation state
-Backend sends the history to the LLM
+# 10. Tool / Function Calling ✅
 
-You successfully tested:
+We taught Gemini how to use tools.
 
-What is Azure?
-        ↓
-Who provides it?
-        ↓
-Microsoft
+Current tools include:
 
-So Phase 7 = COMPLETE ✅
+```text
+get_user_info()
+search_web()
+research_topic()
+send_email()
+```
 
-Phase 8 — Tool / Function Calling 🚧 CURRENT
+The important thing we learned is:
 
-We're currently here.
+**Gemini doesn't directly execute Python.**
 
-What we've done
-Step 1 — Understand Function Calling ✅
+Instead:
 
-You learned:
-
-LLM decides which tool is needed; backend actually executes the tool.
-
-Step 2 — Created a Python Tool ✅
-
-Created:
-
-tools.py
-
-with:
-
-def get_user_info(name: str):
-    return f"The user's name is {name}."
-Step 3 — Defined Tool for Gemini ✅
-
-Created:
-
-get_tools()
-
-which tells Gemini:
-
-Tool:
-get_user_info
-
-Parameter:
-name
-Step 4 — Gemini Tool Selection ✅
-
-Gemini successfully returned:
-
-get_user_info
-
-with:
-
-name = Farhan
-
-So Gemini understood:
-
-"I need this tool to answer the question."
-
-Step 5 — Backend Tool Execution ✅
-
-We created:
-
-execute_tool()
-
-which takes Gemini's request and executes:
-
-get_user_info("Farhan")
-Step 6 — Tested Execution ✅
-
-We successfully got:
-
-The user's name is Farhan.
-Step 7 — Complete Tool Calling Cycle ✅
-
-We connected everything:
-
+```text
 User
  ↓
 Gemini
  ↓
-Tool Call
+"I need search_web"
  ↓
-Python Function
+Python executes search_web()
  ↓
-Tool Result
+Tool result
  ↓
 Gemini
  ↓
-Final Answer
+Final answer
+```
 
-And your test successfully returned a natural-language response.
+This became the foundation of our agent architecture.
 
-What You Have Learned Overall
+---
 
-At this point, you've covered a large portion of the core AI application architecture.
+# 11. Web Search with Tavily ✅
 
-You understand:
+We integrated Tavily.
 
-LLM
-API calls
-Prompting
-FastAPI
-React
-Next.js
-PDF processing
-Chunking
-Embeddings
-Vector databases
-pgvector
-Semantic search
-RAG
-Source citations
-Conversation history
-Function calling
-Tool definitions
-Tool execution
-Agent-like tool flow
+When Gemini determines that a question requires current web information:
 
-And more importantly, you have actually implemented and tested these concepts rather than just reading about them.
+```text
+User
+ ↓
+Gemini
+ ↓
+search_web()
+ ↓
+Tavily
+ ↓
+Search results
+ ↓
+Gemini
+ ↓
+Summary + Sources
+```
 
-Remaining Project Plan
+So the assistant isn't limited to its built-in knowledge.
 
-Now we continue with the original agreed scope.
+---
 
-✅ Phase 1  — Project Foundation
-✅ Phase 2  — LLM + Basic Chat
-✅ Phase 3  — Next.js + Tailwind Chat UI
-✅ Phase 4  — PDF Upload + Processing
-✅ Phase 5  — Embeddings + PostgreSQL/pgvector
-✅ Phase 6  — Basic RAG
-✅ Phase 7  — Source Citations + Conversation History
+# 12. Research Workflow ✅
 
-🚧 Phase 8  — Tool / Function Calling
-   ├── ✅ Understand function calling
-   ├── ✅ Create Python tool
-   ├── ✅ Define tool
-   ├── ✅ Gemini selects tool
-   ├── ✅ Execute tool
-   ├── ✅ Send result to Gemini
-   └── ⏭️ Tool selection testing
+We created:
 
-⬜ Phase 9  — Web Search + AI Summarization
-⬜ Phase 10 — Research Workflow + Basic Agent Architecture
-⬜ Phase 11 — Slack + Email
-⬜ Phase 12 — Redis + Error Handling
-⬜ Phase 13 — Basic Authentication (Optional)
-⬜ Phase 14 — Docker
-⬜ Phase 15 — AWS Deployment
-The bigger picture
+```text
+research_service.py
+```
 
-Eventually your application will look like:
+This is different from simply doing one web search.
 
-                         ┌── PDF → Embeddings → pgvector
-                         │
-User → Next.js → FastAPI ├── RAG
-                         │
-                         ├── Web Search
-                         │
-                         ├── Slack
-                         │
-                         └── Email
-                                ↓
-                             Gemini
-                                ↓
-                         Final Response
+The workflow is:
 
-And the agent architecture will eventually allow Gemini to decide:
+```text
+Research Topic
+      ↓
+Search Web
+      ↓
+Collect Sources
+      ↓
+Organize Information
+      ↓
+Gemini
+      ↓
+Structured Research Report
+```
 
-"What does this question require?"
+Current report structure:
 
-        ↓
+```text
+Overview
+Key Points
+Common Use Cases
+Conclusion
+```
 
-RAG?
-Web Search?
-Slack?
-Email?
-No tool?
+And we exposed research as a tool that Gemini can call.
 
-But we will not jump there yet.
+---
 
-Current exact position
+# 13. Agent Decision Making ✅
 
-Phase 8 → Step 8: Tool Selection Testing
+Now Gemini can decide what type of action is appropriate.
 
-We'll test that Gemini can correctly distinguish:
+For example:
 
-"What is Farhan's name?"
-        ↓
-Use tool
-
-vs.
-
+```text
 "What is Python?"
         ↓
-No tool needed
+Direct answer
+```
 
-That will give you a proper understanding of tool selection before we move to the real Web Search tool in Phase 9.
+Whereas:
+
+```text
+"What happened in X recently?"
+        ↓
+Web search
+```
+
+And:
+
+```text
+"Research Apache Kafka and give me a structured report."
+        ↓
+Research workflow
+```
+
+So our architecture became:
+
+```text
+                    Gemini
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+      Answer        Search       Research
+
+          └────────────┬────────────┘
+                       ▼
+                    Result
+```
+
+---
+
+# 14. Email Integration ✅
+
+We added Gmail SMTP.
+
+Configuration:
+
+```text
+smtp.gmail.com
+Port 587
+STARTTLS
+```
+
+The application can send the generated answer/research through email.
+
+Flow:
+
+```text
+Assistant Result
+      ↓
+send_email()
+      ↓
+Gmail SMTP
+      ↓
+User Email
+```
+
+We first tested this with a mock email function and then connected real Gmail SMTP.
+
+We successfully tested email sending.
+
+---
+
+# 15. Multi-Tool Agent Workflow ✅
+
+This was an important milestone.
+
+We tested:
+
+```text
+Research Apache Kafka
++
+Email me the result
+```
+
+The agent performed multiple operations:
+
+```text
+User
+ ↓
+Gemini
+ ↓
+research_topic()
+ ↓
+Tavily
+ ↓
+Research result
+ ↓
+Gemini
+ ↓
+send_email()
+ ↓
+Gmail
+```
+
+So the assistant isn't just a chatbot anymore.
+
+It can **use multiple tools in one workflow.**
+
+---
+
+# 16. Authentication ⏭️ SKIPPED
+
+We had planned basic authentication.
+
+But you specifically decided to skip it because:
+
+> This project is primarily for learning and understanding, not building a production SaaS application.
+
+So:
+
+```text
+Authentication → SKIPPED
+```
+
+This was intentional.
+
+---
+
+# 17. Redis ✅
+
+Then we introduced Redis.
+
+We learned the difference between:
+
+### PostgreSQL
+
+Persistent storage:
+
+```text
+PDF chunks
+Embeddings
+RAG data
+```
+
+### Redis
+
+Fast temporary/session storage:
+
+```text
+Chat history
+Session state
+```
+
+---
+
+## Redis Operations We Learned
+
+We implemented and tested:
+
+### Connection
+
+```python
+redis_client.ping()
+```
+
+### SET
+
+```text
+key → value
+```
+
+### GET
+
+```text
+key → value
+```
+
+### DELETE
+
+```text
+delete(key)
+```
+
+### TTL
+
+Temporary data:
+
+```text
+set(key, value, ex=10)
+```
+
+After 10 seconds the key disappears.
+
+### JSON
+
+We stored Python lists/dictionaries as JSON.
+
+### Session History
+
+We created keys like:
+
+```text
+chat:session_001
+```
+
+---
+
+# 18. Redis + Chat Integration ✅
+
+We changed the chat architecture to:
+
+```text
+User
+ ↓
+Frontend
+ ↓
+Backend
+ ↓
+Redis
+ ↓
+Load history
+ ↓
+Gemini
+ ↓
+Answer
+ ↓
+Save updated history
+ ↓
+Redis
+ ↓
+Frontend
+```
+
+This allows follow-up questions.
+
+For example:
+
+```text
+User:
+What is Kafka?
+
+Assistant:
+Kafka is...
+
+User:
+What are its components?
+
+Assistant:
+Kafka's components are...
+```
+
+The second question works because the previous conversation is available through the session history.
+
+---
+
+# 19. Redis Error Handling ✅
+
+We deliberately stopped Redis to see what would happen.
+
+Initially:
+
+```text
+Redis unavailable
+ ↓
+ConnectionError
+ ↓
+Backend failure
+```
+
+We then added error handling.
+
+Now:
+
+```text
+Redis unavailable
+       ↓
+load_history()
+       ↓
+None
+       ↓
+history = []
+       ↓
+Gemini can still answer
+       ↓
+save_history() returns False
+```
+
+So Redis is useful but the basic chat doesn't completely die if Redis is temporarily unavailable.
+
+---
+
+# 20. Docker ✅
+
+Then we Dockerized the application.
+
+We learned:
+
+### Image
+
+A packaged blueprint.
+
+### Container
+
+A running instance of that image.
+
+So:
+
+```text
+Application
++
+Dependencies
+      ↓
+Docker Image
+      ↓
+Container
+```
+
+And we learned that Docker is **not a hosting platform**.
+
+---
+
+# 21. Backend Dockerization ✅
+
+We created:
+
+```text
+backend/Dockerfile
+```
+
+It uses:
+
+```text
+Python 3.12 slim
+```
+
+The Dockerfile:
+
+```text
+Python image
+ ↓
+WORKDIR /app
+ ↓
+Copy requirements
+ ↓
+Install dependencies
+ ↓
+Copy backend
+ ↓
+Run Uvicorn
+```
+
+Backend runs on:
+
+```text
+8000
+```
+
+---
+
+# 22. Frontend Dockerization ✅
+
+We created:
+
+```text
+frontend/Dockerfile
+```
+
+It uses:
+
+```text
+Node 22 Alpine
+```
+
+The process is:
+
+```text
+Node image
+ ↓
+WORKDIR
+ ↓
+npm ci
+ ↓
+Copy frontend
+ ↓
+npm run build
+ ↓
+npm start
+```
+
+Frontend runs on:
+
+```text
+3000
+```
+
+---
+
+# 23. `.dockerignore` + Secrets ✅
+
+We made sure `.env` is not copied into the Docker image.
+
+Backend `.dockerignore` contains:
+
+```text
+.env
+__pycache__
+*.pyc
+```
+
+Frontend `.dockerignore` contains:
+
+```text
+node_modules
+.next
+.env
+*.log
+```
+
+Secrets remain outside the image and are injected through environment variables.
+
+Your root `.gitignore` also ignores:
+
+```text
+.env
+backend/.env
+```
+
+---
+
+# 24. Docker Compose ✅
+
+Instead of manually managing each container, we created:
+
+```text
+docker-compose.yml
+```
+
+It manages:
+
+```text
+Backend
+Frontend
+PostgreSQL
+Redis
+```
+
+Important:
+
+**Compose does not combine them into one container.**
+
+It manages multiple separate containers together.
+
+---
+
+# 25. Docker Internal Networking ✅
+
+This was an important concept.
+
+Inside Docker:
+
+```text
+Backend → Redis
+```
+
+uses:
+
+```text
+redis:6379
+```
+
+And:
+
+```text
+Backend → PostgreSQL
+```
+
+uses:
+
+```text
+postgres:5432
+```
+
+Because Docker Compose provides internal DNS using service names.
+
+So:
+
+```text
+REDIS_HOST=redis
+```
+
+and:
+
+```text
+DATABASE_URL=...@postgres:5432/rag_db
+```
+
+are correct.
+
+---
+
+# 26. PostgreSQL Persistent Volume ✅
+
+We already had PostgreSQL data before moving everything to Compose.
+
+We therefore reused the existing external Docker volume.
+
+We verified:
+
+```text
+document_chunks
+```
+
+still existed after recreating the PostgreSQL container.
+
+So our RAG data survived the Docker transition.
+
+This is very important:
+
+```text
+PostgreSQL Container
+        ↓
+External Volume
+        ↓
+RAG Data
+```
+
+The container can be recreated without losing the persistent database data, as long as the volume isn't deleted.
+
+---
+
+# 27. Full Docker Compose Application ✅
+
+At this point everything is running together:
+
+```text
+┌───────────────────────────────────────┐
+│           Docker Compose              │
+│                                       │
+│  ┌─────────────┐                      │
+│  │  Frontend   │ :3000               │
+│  └──────┬──────┘                      │
+│         │                              │
+│         ▼                              │
+│  ┌─────────────┐                      │
+│  │  Backend    │ :8000               │
+│  └──────┬──────┘                      │
+│         │                              │
+│    ┌────┴────┐                         │
+│    ▼         ▼                         │
+│ PostgreSQL  Redis                      │
+│  :5432      :6379                      │
+│                                       │
+└───────────────────────────────────────┘
+```
+
+Current containers:
+
+```text
+ai-frontend
+ai-backend
+rag-postgres
+rag-redis
+```
+
+---
+
+# 28. Final Docker Testing ✅
+
+We tested the complete stack.
+
+### Backend
+
+```text
+FastAPI starts
+       ✅
+```
+
+### Frontend
+
+```text
+Next.js starts
+       ✅
+```
+
+### PostgreSQL
+
+```text
+document_chunks exists
+       ✅
+```
+
+### Redis
+
+```text
+chat:<session_id>
+       ✅
+```
+
+### Chat
+
+```text
+Question → Answer
+       ✅
+```
+
+### Follow-up
+
+```text
+Question 1
+    ↓
+Question 2
+    ↓
+Conversation context maintained
+       ✅
+```
+
+### Email
+
+```text
+Assistant → Gmail
+       ✅
+```
+
+### Restart
+
+We tested:
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+All four services came back:
+
+```text
+ai-backend     → Up
+ai-frontend    → Up
+rag-postgres   → Up
+rag-redis      → Up
+```
+
+Then we tested the chat again.
+
+**Passed.** ✅
+
+---
+
+# 🏁 Where We Are Now
+
+Our project currently looks like this:
+
+```text
+                         AI ASSISTANT
+                              │
+          ┌───────────────────┼───────────────────┐
+          │                   │                   │
+        Chat                 RAG                Agent
+          │                   │                   │
+          │              PDF + Vector       Tool Calling
+          │                   │                   │
+          │              PostgreSQL        ┌──────┼──────┐
+          │                pgvector         │      │      │
+          │                                 Web  Research Email
+          │
+          ▼
+       Redis
+   Conversation
+      History
+```
+
+And the whole thing is now running inside Docker Compose.
+
+---
+
+# 📊 Overall Progress
+
+| Phase                               | Status     |
+| ----------------------------------- | ---------- |
+| 1. Project Foundation               | ✅          |
+| 2. Gemini + Basic Chat              | ✅          |
+| 3. Next.js Chat UI                  | ✅          |
+| 4. PDF Processing                   | ✅          |
+| 5. Embeddings + PostgreSQL/pgvector | ✅          |
+| 6. Basic RAG                        | ✅          |
+| 7. Sources + Conversation History   | ✅          |
+| 8. Tool Calling                     | ✅          |
+| 9. Web Search                       | ✅          |
+| 10. Research Agent                  | ✅          |
+| 11. Email Integration               | ✅          |
+| 12. Multi-Tool Agent                | ✅          |
+| 13. Authentication                  | ⏭️ Skipped |
+| 14. Redis + Error Handling          | ✅          |
+| 15. Docker + Compose                | ✅          |
+| **16. AWS Deployment**              | ⏳          |
+
+## 🚀 Next
+
+The only major part left in our agreed roadmap is:
+
+**Phase 16 — AWS Deployment**
+
+Planned architecture:
+
+```text
+                    AWS
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+       Frontend              Backend
+                                │
+                         ECS Fargate
+                                │
+             ┌──────────────────┼─────────────────┐
+             │                  │                 │
+            RDS                S3              Redis*
+       PostgreSQL
+        + pgvector
+             │
+             ▼
+          RAG Data
+
+Supporting:
+ECR              → Docker images
+Secrets Manager  → Secrets
+CloudWatch       → Logs
+IAM              → Permissions
+GitHub Actions   → CI/CD

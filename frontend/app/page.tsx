@@ -22,6 +22,16 @@ type Source = {
 };
 
 export default function Home() {
+  const [sessionId, setSessionId] = useState(() => {
+    if (typeof window === "undefined") return "";
+
+    const storedSessionId = window.sessionStorage.getItem("chat-session-id");
+    if (storedSessionId) return storedSessionId;
+
+    const newSessionId = window.crypto.randomUUID();
+    window.sessionStorage.setItem("chat-session-id", newSessionId);
+    return newSessionId;
+  });
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -34,7 +44,7 @@ export default function Home() {
 
   async function sendMessage() {
     const text = message.trim();
-    if ((!text && !selectedFile) || loading) return;
+    if ((!text && !selectedFile) || loading || !sessionId) return;
 
     const userMessage: Message = {
       role: "user",
@@ -80,8 +90,8 @@ export default function Home() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            session_id: sessionId,
             message: text,
-            history: messages.map(({ role, content }) => ({ role, content })),
           }),
         });
 
@@ -140,6 +150,9 @@ export default function Home() {
 
           <button
             onClick={() => {
+              const newSessionId = window.crypto.randomUUID();
+              window.sessionStorage.setItem("chat-session-id", newSessionId);
+              setSessionId(newSessionId);
               setMessages([{
                 role: "assistant",
                 content: "Start a conversation and I’ll help you organize your ideas, research, and notes.",

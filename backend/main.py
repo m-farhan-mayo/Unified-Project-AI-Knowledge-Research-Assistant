@@ -26,6 +26,10 @@ from app.services.pdf_service import (
     extract_text_from_pdf,
     chunk_text,
 )
+from app.services.redis_service import (
+    load_history,
+    save_history,
+)
 
 
 
@@ -74,10 +78,13 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(min_length=1, description="The current user message.")
-    history: list[ChatMessage] = Field(
-        default_factory=list,
-        description="Previous user and assistant messages in chronological order.",
+    session_id: str = Field(
+        min_length=1,
+        description="Unique identifier for the conversation session.",
+    )
+    message: str = Field(
+        min_length=1,
+        description="The current user message.",
     )
 
 
@@ -113,23 +120,38 @@ class PdfUploadResponse(BaseModel):
     ),
 )
 def chat(request: ChatRequest):
+    history = load_history(request.session_id) or []
+
     response = ask_llm_with_tools(
         request.message,
-        [message.model_dump() for message in request.history],
+        history,
     )
-    recipient = os.getenv("CHAT_EMAIL_TO") or os.getenv("SMTP_USERNAME")
-    if recipient:
-        email_status = send_email(
-            to=recipient,
-            subject="AI Assistant response",
-            body=response["answer"],
-        )
-    else:
-        email_status = {
-            "success": False,
-            "tool": "send_email",
-            "message": "Email was not sent: configure CHAT_EMAIL_TO or SMTP_USERNAME.",
-        }
+    updated_history = history + [
+        {
+            "role": "user",
+            "content": request.message,
+        },
+        {
+            "role": "assistant",
+            "content": response["answer"],
+        },
+    ]
+    save_history(request.session_id, updated_history)
+    email_status = response.get("email_status")
+    if email_status is None:
+        recipient = os.getenv("CHAT_EMAIL_TO") or os.getenv("SMTP_USERNAME")
+        if recipient:
+            email_status = send_email(
+                to=recipient,
+                subject="AI Assistant response",
+                body=response["answer"],
+            )
+        else:
+            email_status = {
+                "success": False,
+                "tool": "send_email",
+                "message": "Email was not sent: configure CHAT_EMAIL_TO or SMTP_USERNAME.",
+            }
 
     response["email_status"] = email_status
 

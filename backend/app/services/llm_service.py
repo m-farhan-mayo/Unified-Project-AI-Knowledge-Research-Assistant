@@ -8,6 +8,7 @@ from app.services.research_service import research_topic
 from app.services.tools import (
     get_user_info,
     search_web,
+    send_email,
     send_slack_message
 )
 
@@ -65,6 +66,8 @@ def ask_llm_with_tools(message: str, history: list[dict] | None = None):
         }
     )
     search_sources = []
+    logger = logging.getLogger(__name__)
+    email_status = None
 
     def get_unique_sources():
         unique_sources = []
@@ -93,6 +96,7 @@ def ask_llm_with_tools(message: str, history: list[dict] | None = None):
             return {
                 "answer": assistant_message.content or "The model returned no text response.",
                 "sources": get_unique_sources(),
+                "email_status": email_status,
             }
 
         messages.append(
@@ -104,24 +108,33 @@ def ask_llm_with_tools(message: str, history: list[dict] | None = None):
 )
 
         for tool_call in assistant_message.tool_calls:
+            logger.info("Tool Called: %s", tool_call.function.name)
             try:
                 tool_result = execute_tool(tool_call)
             except Exception as exc:
                 tool_result = {
-                "success": False,
-                "error": str(exc)
+                    "success": False,
+                    "error": str(exc),
                 }
 
+            logger.info("Tool Result: %s", tool_result)
+
+            if tool_call.function.name == "send_email":
+                email_status = tool_result
+
+
+            if not isinstance(tool_result, dict):
+                tool_result = {
+                    "success": True,
+                    "tool": tool_call.function.name,
+                    "result": tool_result,
+                }
 
             if tool_call.function.name == "search_web":
                 search_sources.extend(tool_result.get("results", []))
 
             if tool_call.function.name == "research_topic":
                 search_sources.extend(tool_result.get("sources", []))
-
-            logger = logging.getLogger(__name__)
-
-            logger.info(tool_result)
 
             if not isinstance(tool_result, str):
                 tool_result = json.dumps(
@@ -141,6 +154,7 @@ def ask_llm_with_tools(message: str, history: list[dict] | None = None):
     return {
         "answer": "The model exceeded the maximum number of tool calls.",
         "sources": get_unique_sources(),
+        "email_status": email_status,
     }
 
 def get_tools():
@@ -164,7 +178,7 @@ def get_tools():
         },
         get_search_tool(),
         get_research_tool(),
-        get_slack_tool()
+        get_email_tool()
     ]
 
 def execute_tool(tool_call):
@@ -192,8 +206,8 @@ def execute_tool(tool_call):
     if tool_name == "research_topic":
         return research_topic(**arguments)
 
-    if tool_name == "send_slack_message":
-        return send_slack_message(**arguments)
+    if tool_name == "send_email":
+        return send_email(**arguments)
 
     return "Unknown tool."
 
@@ -236,21 +250,33 @@ def get_research_tool():
         }
     }
 
-def get_slack_tool():
+def get_email_tool():
     return {
         "type": "function",
         "function": {
-            "name": "send_slack_message",
-            "description": "Send a message to Slack.",
+            "name": "send_email",
+            "description": (
+                "Send an email when the user explicitly asks to email or share "
+                "the answer/report. Use the recipient, subject, and body requested "
+                "by the user; do not invent recipient addresses."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "message": {
+                    "to": {
                         "type": "string",
-                        "description": "The message that should be sent to Slack."
+                        "description": "The recipient's complete email address."
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "The email subject line."
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "The email body to send."
                     }
                 },
-                "required": ["message"]
+                "required": ["to", "subject", "body"]
             }
         }
     }
