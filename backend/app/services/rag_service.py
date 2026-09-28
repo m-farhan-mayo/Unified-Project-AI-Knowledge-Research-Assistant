@@ -2,57 +2,120 @@ from app.services.embedding_service import get_embedding
 from app.services.database import search_similar_chunks
 from app.services.llm_service import ask_llm
 
+
 def answer_with_rag(
     question: str,
-) -> dict[str, object]:
+    document_id: int,
+    history: list[dict] | None = None,
+) -> dict:
     query_embedding = get_embedding(question)
 
-    results = search_similar_chunks(
-        query_embedding,
-        limit=3
+    rows = search_similar_chunks(
+        query_embedding=query_embedding,
+        document_id=document_id,
+        limit=5,
     )
 
-    sources = [
-        {
-            "chunk_id": row[0],
-            "text": row[1],
-            "distance": row[2]
-        }
-        for row in results
-    ]
-
-    if not sources:
+    if not rows:
         return {
-            "answer": "I don't have enough information to answer that.",
+            "answer": (
+                "I couldn't find relevant information "
+                "in the selected document."
+            ),
             "sources": [],
+            "email_status": None,
         }
+
+    sources = []
+
+    context_sections = []
+
+    for row in rows:
+        (
+            chunk_id,
+            chunk_text,
+            page_number,
+            chunk_index,
+            row_document_id,
+            filename,
+            distance,
+        ) = row
+
+        source = {
+            "type": "document",
+            "document_id": row_document_id,
+            "filename": filename,
+            "title": filename,
+            "page_number": page_number,
+            "chunk_index": chunk_index,
+            "chunk_id": chunk_id,
+            "distance": float(distance),
+        }
+
+        sources.append(source)
+
+        context_sections.append(
+            f"""
+SOURCE:
+File: {filename}
+Page: {page_number}
+Chunk: {chunk_index}
+
+CONTENT:
+{chunk_text}
+""".strip()
+        )
 
     context = "\n\n---\n\n".join(
-        source["text"]
-        for source in sources
+        context_sections
     )
 
-    prompt = f"""
-Answer the question using only the context below.
+    messages = [
+        {
+            "role": "system",
+            "content": """
+You are an AI Knowledge Assistant.
 
-If the answer is not available in the context, say:
-"I don't have enough information to answer that."
+The user is asking a question about an uploaded document.
 
-Context:
+Use the provided document context as the primary source.
+
+Rules:
+
+1. Do not invent information from the document.
+2. If the requested information is not supported by the provided context,
+   clearly say that the document does not provide enough information.
+3. Answer clearly and concisely.
+4. When using document information, mention the relevant page when useful.
+5. Do not invent page numbers or citations.
+""",
+        }
+    ]
+
+    # Preserve a small amount of conversation context.
+    if history:
+        messages.extend(history[-6:])
+
+    messages.append(
+        {
+            "role": "user",
+            "content": f"""
+DOCUMENT CONTEXT:
+
 {context}
 
-Question:
+
+QUESTION:
+
 {question}
+""",
+        }
+    )
 
-Answer:
-"""
-
-    answer = ask_llm(prompt)
+    answer = ask_llm(messages)
 
     return {
-    "answer": answer,
-    "sources": [
-        f"Document Chunk {source['chunk_id']}"
-        for source in sources
-    ]
-}
+        "answer": answer,
+        "sources": sources,
+        "email_status": None,
+    }

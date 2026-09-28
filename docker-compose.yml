@@ -3,42 +3,64 @@ services:
   backend:
     build:
       context: ./backend
+
     container_name: ai-backend
+
     ports:
       - "8000:8000"
+
     env_file:
       - ./backend/.env
+
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
 
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/rag_db
+
+    depends_on:
+      - postgres
+      - redis
+
+
   frontend:
     build:
       context: ./frontend
+
     container_name: ai-frontend
+
     ports:
       - "3000:3000"
 
+    depends_on:
+      - backend
+
+
   postgres:
     image: pgvector/pgvector:pg17
+
     container_name: rag-postgres
+
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: rag_db
+
     ports:
       - "5432:5432"
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+
   redis:
     image: redis:7-alpine
+
     container_name: rag-redis
+
     ports:
       - "6379:6379"
 
+
 volumes:
   postgres_data:
-    external: true
-    name: ec203138afb7e44b9ae5f9c6df3a07c43caadb2340245053a5b88c34bf3d2c1f
-

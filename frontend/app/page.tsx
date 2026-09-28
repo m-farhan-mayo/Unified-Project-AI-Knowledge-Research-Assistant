@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type Message = {
   role: "user" | "assistant";
@@ -17,24 +17,55 @@ type EmailStatus = {
 };
 
 type Source = {
+  type?: "web" | "document";
+
   title?: string;
   url?: string;
+
+  filename?: string;
+
+  document_id?: number;
+
+  page_number?: number;
+
+  chunk_index?: number;
+
+  chunk_id?: number;
+
+  distance?: number;
 };
 
+async function readResponse(response: Response) {
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = typeof data?.detail === "string"
+      ? data.detail
+      : `Request failed (${response.status}). Check that the backend is running.`;
+    throw new Error(detail);
+  }
+  if (!data) throw new Error("The server returned an invalid response.");
+  return data;
+}
+
 export default function Home() {
-  const [sessionId, setSessionId] = useState(() => {
-    if (typeof window === "undefined") return "";
+  const sessionId = useRef("");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const requestPending = useRef(false);
 
-    const storedSessionId = window.sessionStorage.getItem("chat-session-id");
-    if (storedSessionId) return storedSessionId;
-
-    const newSessionId = window.crypto.randomUUID();
-    window.sessionStorage.setItem("chat-session-id", newSessionId);
-    return newSessionId;
-  });
+  function getSessionId() {
+    if (!sessionId.current) {
+      sessionId.current = `session-${Array.from(window.crypto.getRandomValues(new Uint32Array(4)), value => value.toString(16)).join("-")}`;
+    }
+    return sessionId.current;
+  }
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [activeDocumentId, setActiveDocumentId] =
+  useState<number | null>(null);
+
+  const [activeDocumentName, setActiveDocumentName] =
+  useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
@@ -44,7 +75,8 @@ export default function Home() {
 
   async function sendMessage() {
     const text = message.trim();
-    if ((!text && !selectedFile) || loading || !sessionId) return;
+    if ((!text && !selectedFile) || requestPending.current) return;
+    requestPending.current = true;
 
     const userMessage: Message = {
       role: "user",
@@ -62,40 +94,61 @@ export default function Home() {
       let responseSources: Source[] = [];
       let responseEmailStatus: EmailStatus | undefined;
 
+      let documentId = activeDocumentId;
       if (selectedFile) {
         const formData = new FormData();
-        formData.append("file", selectedFile);
 
-        const uploadResult = await fetch("http://127.0.0.1:8000/api/upload-pdf", {
-          method: "POST",
-          body: formData,
-        });
+        formData.append(
+          "file",
+          selectedFile
+        );
 
-        const uploadedData = await uploadResult.json();
-        if (!uploadResult.ok || uploadedData.error) {
-          throw new Error(uploadedData.error || `PDF upload failed (${uploadResult.status}).`);
+        const uploadResult = await fetch(
+          "/api/upload-pdf",
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        const uploadedData =
+          await readResponse(uploadResult);
+
+        if (!uploadResult.ok) {
+          throw new Error(
+            uploadedData.detail ||
+            `PDF upload failed (${uploadResult.status}).`
+          );
         }
 
-        const chunks: string[] = uploadedData.chunks ?? [];
-        if (chunks.length === 0) {
-          responseText = `Processed ${uploadedData.filename}, but no readable text was found.`;
-        } else {
-          const preview = chunks[0].slice(0, 500);
-          responseText = `Processed ${uploadedData.filename}. Extracted ${uploadedData.total_chunks} text chunks.\n\nPreview:\n${preview}${chunks[0].length > 500 ? "..." : ""}`;
-        }
-      } else {
-        const result = await fetch("http://127.0.0.1:8000/api/chat", {
+        documentId = uploadedData.document_id;
+        setActiveDocumentId(documentId);
+
+        setActiveDocumentName(
+          uploadedData.filename
+        );
+
+        responseText =
+          `Successfully indexed ${uploadedData.filename}.\n\n` +
+          `Pages: ${uploadedData.total_pages}\n` +
+          `Chunks: ${uploadedData.total_chunks}\n\n` +
+          `You can now ask questions about this document.`;
+      }
+
+      if (text) {
+        const result = await fetch("/api/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            session_id: sessionId,
-            message: text,
-          }),
+          session_id: getSessionId(),
+          message: text,
+          document_id: documentId,
+        }),
         });
 
-        const data = await result.json();
+        const data = await readResponse(result);
         if (!result.ok) {
           throw new Error(data.detail || `Chat request failed (${result.status}).`);
         }
@@ -131,6 +184,8 @@ export default function Home() {
       ]);
     } finally {
       setSelectedFile(null);
+      if (fileInput.current) fileInput.current.value = "";
+      requestPending.current = false;
       setLoading(false);
     }
   }
@@ -150,15 +205,16 @@ export default function Home() {
 
           <button
             onClick={() => {
-              const newSessionId = window.crypto.randomUUID();
-              window.sessionStorage.setItem("chat-session-id", newSessionId);
-              setSessionId(newSessionId);
+              sessionId.current = "";
+              if (fileInput.current) fileInput.current.value = "";
               setMessages([{
                 role: "assistant",
                 content: "Start a conversation and I’ll help you organize your ideas, research, and notes.",
               }]);
               setMessage("");
               setSelectedFile(null);
+              setActiveDocumentId(null);
+              setActiveDocumentName(null);
             }}
             disabled={loading}
             className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:shadow-md disabled:opacity-50"
@@ -174,7 +230,7 @@ export default function Home() {
               <p className="text-xs text-slate-500">Ask anything about your research</p>
             </div>
             <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
-              Online
+              {loading ? "Working" : "Ready"}
             </span>
           </div>
 
@@ -191,14 +247,14 @@ export default function Home() {
                       : "rounded-bl-md bg-slate-100 text-slate-700"
                   }`}
                 >
-                  {msg.content}
+                  <div className="whitespace-pre-wrap break-words">{msg.content}</div>
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="mt-3 border-t border-current/15 pt-2">
                       <p className="mb-1 text-xs font-semibold">Sources</p>
                       <ul className="space-y-1">
                         {msg.sources.map((source, sourceIndex) => (
                           <li key={`${source.url ?? source.title ?? "source"}-${sourceIndex}`}>
-                            {source.url ? (
+                            {source.url && /^https?:\/\//i.test(source.url) ? (
                               <a
                                 href={source.url}
                                 target="_blank"
@@ -207,8 +263,19 @@ export default function Home() {
                               >
                                 {source.title || source.url}
                               </a>
+                            ) : source.filename ? (
+                              <span>
+                                {source.filename}
+
+                                {source.page_number !== undefined &&
+                                  ` — Page ${source.page_number}`}
+
+                                {source.chunk_index !== undefined &&
+                                  ` — Chunk ${source.chunk_index + 1}`}
+                              </span>
                             ) : (
-                              source.title || `Source ${sourceIndex + 1}`
+                              source.title ||
+                              `Source ${sourceIndex + 1}`
                             )}
                           </li>
                         ))}
@@ -234,10 +301,22 @@ export default function Home() {
           </div>
 
           <div className="border-t border-slate-200 bg-white p-4">
+            {activeDocumentName && (
+              <div className="mb-3 flex items-center gap-3 text-sm">
+                <span>Document: {activeDocumentName}</span>
+                <button disabled={loading} className="underline" onClick={() => {
+                  setActiveDocumentId(null);
+                  setActiveDocumentName(null);
+                  sessionId.current = "";
+                }}>Stop using document</button>
+              </div>
+            )}
             <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
               <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 shadow-sm transition hover:bg-slate-100">
                 <span>Attach PDF</span>
                 <input
+                  ref={fileInput}
+                  disabled={loading}
                   type="file"
                   accept=".pdf"
                   onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
@@ -260,7 +339,7 @@ export default function Home() {
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") {
+                    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
                       sendMessage();
                     }
                   }}
@@ -269,6 +348,7 @@ export default function Home() {
               </div>
 
               <button
+                disabled={loading || (!message.trim() && !selectedFile)}
                 onClick={sendMessage}
                 className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
               >

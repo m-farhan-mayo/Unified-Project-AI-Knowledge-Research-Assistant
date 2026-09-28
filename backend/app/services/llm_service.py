@@ -2,7 +2,7 @@ import os
 import logging
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import OpenAI, APIConnectionError, APIStatusError
 import json
 from app.services.research_service import research_topic
 from app.services.tools import (
@@ -23,7 +23,29 @@ def get_client() -> OpenAI:
     return OpenAI(
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         api_key=api_key,
+        timeout=30.0,
+        max_retries=2,
     )
+
+
+def create_completion(client, **kwargs):
+    """Retry via the SDK, then optionally try another configured model.
+
+    Only retry model generation, never the entire tool workflow: replaying
+    that workflow could send an email twice.
+    """
+    primary = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite").strip()
+    fallback = os.getenv("GEMINI_FALLBACK_MODEL", "").strip()
+    try:
+        return client.chat.completions.create(model=primary, **kwargs)
+    except (APIConnectionError, APIStatusError) as exc:
+        transient = isinstance(exc, APIConnectionError) or exc.status_code >= 500
+        if not transient or not fallback or fallback == primary:
+            raise
+        logging.getLogger(__name__).warning(
+            "Primary Gemini model unavailable; trying configured fallback."
+        )
+        return client.chat.completions.create(model=fallback, **kwargs)
 
 
 def ask_llm(messages: str | list[dict[str, str]]) -> str:
@@ -32,8 +54,8 @@ def ask_llm(messages: str | list[dict[str, str]]) -> str:
     if isinstance(messages, str):
         messages = [{"role": "user", "content": messages}]
 
-    response = client.chat.completions.create(
-        model="gemini-3.5-flash-lite",
+    response = create_completion(
+        client,
         messages=messages,
     )
 
@@ -85,8 +107,8 @@ def ask_llm_with_tools(message: str, history: list[dict] | None = None):
 
     for _ in range(MAX_TOOL_ITERATIONS):
 
-        response = client.chat.completions.create(
-            model="gemini-3.5-flash-lite",
+        response = create_completion(
+            client,
             messages=messages,
             tools=get_tools(),
         )
