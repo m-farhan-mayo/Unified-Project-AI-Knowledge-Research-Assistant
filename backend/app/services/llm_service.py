@@ -6,10 +6,8 @@ from openai import OpenAI, APIConnectionError, APIStatusError
 import json
 from app.services.research_service import research_topic
 from app.services.tools import (
-    get_user_info,
     search_web,
     send_email,
-    send_slack_message
 )
 
 
@@ -181,23 +179,6 @@ def ask_llm_with_tools(message: str, history: list[dict] | None = None):
 
 def get_tools():
     return [
-        {
-            "type": "function",
-            "function": {
-                "name": "get_user_info",
-                "description": "Get information about a user by their name.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "The name of the user."
-                        }
-                    },
-                    "required": ["name"]
-                }
-            }
-        },
         get_search_tool(),
         get_research_tool(),
         get_email_tool()
@@ -206,9 +187,6 @@ def get_tools():
 def execute_tool(tool_call):
     tool_name = tool_call.function.name
     arguments = json.loads(tool_call.function.arguments)
-
-    if tool_name == "get_user_info":
-        return get_user_info(**arguments)
 
     if tool_name == "search_web":
         search_result = search_web(**arguments)

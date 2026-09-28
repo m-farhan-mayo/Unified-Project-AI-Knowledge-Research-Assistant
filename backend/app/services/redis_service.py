@@ -14,22 +14,6 @@ redis_client = redis.Redis(
 )
 
 
-def test_redis_connection():
-    return redis_client.ping()
-
-def set_value(key: str, value: str):
-    return redis_client.set(key, value)
-
-
-def get_value(key: str):
-    return redis_client.get(key)
-
-def delete_value(key: str):
-    return redis_client.delete(key)
-
-def set_value_with_expiry(key: str, value: str, seconds: int):
-    return redis_client.set(key, value, ex=seconds)
-
 def set_json(key: str, value):
     return redis_client.set(key, json.dumps(value))
 

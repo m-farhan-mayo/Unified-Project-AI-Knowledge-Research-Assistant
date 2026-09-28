@@ -100,14 +100,3 @@ def chunk_pdf_pages(
             chunk_index += 1
 
     return all_chunks
-
-
-# Keep this function because some of your old test
-# endpoints still use it.
-def extract_text_from_pdf(file_path: str) -> str:
-    pages = extract_pages_from_pdf(file_path)
-
-    return "\n\n".join(
-        page["text"]
-        for page in pages
-    )

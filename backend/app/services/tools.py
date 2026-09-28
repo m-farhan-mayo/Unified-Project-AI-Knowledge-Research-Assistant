@@ -7,10 +7,6 @@ from tavily import TavilyClient
 from email.message import EmailMessage
 
 
-def get_user_info(name: str) -> str:
-    return f"The user's name is {name}."
-
-
 def search_web(query: str):
     load_dotenv()
 
@@ -24,10 +20,6 @@ def search_web(query: str):
     )
 
     return response
-
-def send_slack_message(message: str):
-    return f"Slack message sent: {message}"
-
 
 def _email_status(success: bool, message: str, recipient: str | None = None, subject: str | None = None):
     status = {
