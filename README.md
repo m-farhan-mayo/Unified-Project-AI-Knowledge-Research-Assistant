@@ -1,5 +1,7 @@
 # AI Knowledge & Research Assistant
 
+![alt text](<AI Knowledge & Research Assistant.png>)
+
 ## 1. Project Overview
 
 The project is a **Unified AI Knowledge & Research Assistant**.
