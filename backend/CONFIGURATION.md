@@ -14,3 +14,7 @@ The SDK retries transient generation failures twice, with a 30-second timeout pe
 If the provider remains unavailable, the API returns a readable 503 response (504 for timeouts), rather than an unhandled 500. Failed turns are not saved to history. A successful PDF upload remains selected when its subsequent question fails.
 
 Apply code or environment changes with `docker compose up -d --build backend`. Provider capacity is external: local changes cannot guarantee availability during a Gemini outage.
+
+# Local development
+
+Install Python dependencies from the project root with `pip install -r backend/requirements.txt`. This is the same dependency list used by the backend Docker image.
