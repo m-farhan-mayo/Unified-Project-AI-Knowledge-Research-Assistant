@@ -36,3 +36,6 @@ Thumbs.db
 # Editor backup files
 *.save
 *~
+
+# Brud Code workspace history
+.brud/
